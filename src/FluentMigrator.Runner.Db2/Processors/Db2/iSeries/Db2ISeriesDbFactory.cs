@@ -22,7 +22,7 @@ namespace FluentMigrator.Runner.Processors.DB2.iSeries
 {
     /// <summary>
     /// Represents a database factory for IBM DB2 iSeries, leveraging reflection-based mechanisms
-    /// to create and manage database provider factories.
+    /// to create and manage database provider factories. NOTE: This is only relevant for .NET Framework.
     /// </summary>
     /// <remarks>
     /// This class is specifically designed to support the IBM DB2 iSeries database by utilizing
@@ -33,7 +33,7 @@ namespace FluentMigrator.Runner.Processors.DB2.iSeries
     {
         private static readonly TestEntry[] _testEntries =
         {
-            new TestEntry("IBM.Data.DB2.iSeries", "IBM.Data.DB2.iSeries.iDB2Factory"),
+            new TestEntry("Net.IBM.Data.DB2.iSeries", "Net.IBM.Data.DB2.iSeries.iDB2Factory"),
         };
 
         /// <summary>

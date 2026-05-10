@@ -4,6 +4,9 @@ on:
   pull_request_target:
     branches:
     - '*'
+  push:
+    branches:
+    - 'main'
 
 env:
   solution: 'FluentMigrator.sln'
@@ -21,11 +24,11 @@ jobs:
 
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest]
-        dotnet-tfm: [
-          net8.0,
-#          net9.0,
-        ]
+         include:
+          - os: windows-latest
+            dotnet-tfm: net48
+          - os: ubuntu-latest
+            dotnet-tfm: net8.0
 
     steps:
     - name: Checkout
@@ -50,8 +53,11 @@ jobs:
       with:
         dotnet-version: '9.0.x'
 
-    - name: Restore, Build, Test
-      run: dotnet test --framework ${{ matrix.dotnet-tfm }} --configuration ${{ env.buildConfiguration }} --verbosity quiet --logger trx --collect:"XPlat Code Coverage" --results-directory "TestResults-${{ matrix.dotnet-tfm }}"
+    - name: Restore
+      run: dotnet restore
+
+    - name: Build, Test
+      run: dotnet test --no-restore --framework ${{ matrix.dotnet-tfm }} --configuration ${{ env.buildConfiguration }} --verbosity quiet --logger trx --collect:"XPlat Code Coverage" --results-directory "TestResults-${{ matrix.dotnet-tfm }}"
       env:
         # Enable containers for integration tests only on Linux
         FM_TestConnectionStrings__MySql__ContainerEnabled: ${{ matrix.os == 'ubuntu-latest' }}
@@ -64,7 +70,7 @@ jobs:
         FM_TestConnectionStrings__SqlServer2016__IsEnabled: ${{ matrix.os == 'ubuntu-latest' }}
 
     - name: Combine Coverage Reports
-      uses: danielpalme/ReportGenerator-GitHub-Action@v5.4.10
+      uses: danielpalme/ReportGenerator-GitHub-Action@v5.5.0
       with:
         reports: "**/*.cobertura.xml"
         targetdir: "${{ github.workspace }}"
@@ -83,6 +89,7 @@ jobs:
 
     - name: Publish Code Coverage Report
       uses: irongut/CodeCoverageSummary@v1.3.0
+      if: matrix.os == 'ubuntu-latest' && (!cancelled())
       with:
         filename: "Cobertura.xml"
         badge: true
@@ -110,6 +117,52 @@ jobs:
 
     - name: Publish Test Results
       uses: EnricoMi/publish-unit-test-result-action@v2
-      if: (!cancelled())
+      # GitHub Actions initially only supported containerized actions, which is not supported on Windows
+      # and this particular GitHub action from EnricoMi is a containerized action
+      if: matrix.os == 'ubuntu-latest' && (!cancelled())
       with:
         files: "${{ github.workspace }}/**/*.trx"
+
+    - name: Diagnostics (Linux)
+      if: matrix.os == 'ubuntu-latest' && failure()
+      run: |
+        echo "=== dotnet --info ==="
+        dotnet --info || true
+
+        echo "=== Repo root listing ==="
+        ls -la || true
+
+        echo "=== Check test project obj folder ==="
+        TEST_OBJ="test/FluentMigrator.Analyzers.Tests/obj"
+        if [ -d "$TEST_OBJ" ]; then
+          echo "Found $TEST_OBJ, listing contents (first 500 chars of each file):"
+          find "$TEST_OBJ" -type f -maxdepth 3 -print -exec sh -c 'echo "---- {} ----"; head -c 500 "{}" || true; echo' \;
+        else
+          echo "$TEST_OBJ does not exist"
+        fi
+
+    - name: Diagnostics (Windows)
+      if: matrix.os == 'windows-latest' && failure()
+      shell: pwsh
+      run: |
+        Write-Host "=== dotnet --info ==="
+        dotnet --info
+
+        Write-Host "=== Repo root listing ==="
+        Get-ChildItem -Force
+
+        $testObj = "test\FluentMigrator.Analyzers.Tests\obj"
+        Write-Host "=== Check test project obj folder ($testObj) ==="
+        if (Test-Path $testObj) {
+          Get-ChildItem $testObj -Recurse -File | ForEach-Object {
+            Write-Host "---- $($_.FullName) ----"
+            # show the first ~200 chars/lines safely
+            try {
+              Get-Content -Path $_.FullName -TotalCount 40 | ForEach-Object { Write-Host $_ }
+            } catch {
+              Write-Host "Unable to dump content of $($_.FullName): $($_.Exception.Message)"
+            }
+          }
+        } else {
+          Write-Host "$testObj does not exist"
+        }
